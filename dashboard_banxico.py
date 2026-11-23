@@ -1,8 +1,8 @@
 # Tablero del SIE de Banxico, con token
-# Herramientas de Visualización · IDIA22X · Unidad III
+# Herramientas de Visualización · IDIA22X · Parcial III
 #
-#     pip install -r requirements.txt
-#     streamlit run dashboard_banxico.py
+# pip install -r requirements.txt
+# streamlit run dashboard_banxico.py
 #
 # EL TOKEN NO VA EN ESTE ARCHIVO.
 # En tu equipo: crea la carpeta .streamlit y dentro un archivo secrets.toml
@@ -10,6 +10,17 @@
 #     banxico_token = "pega-aqui-tu-token"
 # Al publicar: pega esa misma línea en la sección de secretos de la app.
 # El archivo secrets.toml nunca se sube al repositorio.
+#
+# MODIFICACIONES (Evidencia de Desempeño ED.03.01):
+#   - SE QUITÓ: el mapa de calor "Promedio por mes y año". Repetía lo que ya
+#     muestra la gráfica de tendencia (el nivel de la serie en el tiempo), era
+#     difícil de leer con muchos años y su escala de color no permite comparar
+#     valores con precisión.
+#   - SE AGREGÓ: "Volatilidad móvil". Muestra la desviación estándar de la
+#     variación diaria en una ventana móvil. Responde algo que ninguna otra
+#     gráfica responde: ¿en qué periodos fue más arriesgado o inestable el
+#     valor de la serie? El boxplot por año da un resumen anual; esta gráfica
+#     muestra el momento exacto en que subió o bajó la incertidumbre.
 
 import os
 from datetime import date, datetime
@@ -26,6 +37,7 @@ AZUL = "#1C4C9A"
 ROJO = "#B2182B"
 AZUL_POS = "#2166AC"
 CUALI = ["#E69F00", "#56B4E9", "#009E73", "#0072B2"]
+
 sns.set_theme(style="whitegrid")
 
 SIE = "https://www.banxico.org.mx/SieAPIRest/service/v1/series"
@@ -82,7 +94,6 @@ def consultar(claves, inicio, fin, token):
         },
         timeout=60,
     )
-
     if respuesta.status_code == 401:
         raise PermissionError("El token no fue aceptado.")
     if respuesta.status_code == 429:
@@ -98,25 +109,21 @@ def consultar(claves, inicio, fin, token):
 
     tablas = []
     faltantes = {}
-
     for serie in respuesta.json()["bmx"]["series"]:
-        if "datos" not in serie:          # la clave existe pero sin datos
+        if "datos" not in serie:  # la clave existe pero sin datos
             continue
         t = pd.DataFrame(serie["datos"])
         t["Fecha"] = pd.to_datetime(t.pop("fecha"), format="%d/%m/%Y")
-
         # El valor llega como texto; los días inhábiles traen "N/E"
         faltantes[serie["idSerie"]] = int((t["dato"] == "N/E").sum())
         t["Valor"] = pd.to_numeric(
             t.pop("dato").str.replace(",", "", regex=False), errors="coerce")
-
         t["Clave"] = serie["idSerie"]
         t["Serie"] = serie.get("titulo", serie["idSerie"])
         tablas.append(t)
 
     if not tablas:
         raise ValueError("Ninguna de las claves devolvió datos en ese rango.")
-
     df = pd.concat(tablas, ignore_index=True)
     df["Anio"] = df["Fecha"].dt.year
     df["Mes"] = df["Fecha"].dt.month
@@ -136,7 +143,6 @@ with st.sidebar:
     st.caption("Fuente: SIE, Banco de México")
 
 claves = [c.strip().upper() for c in texto.split(",") if c.strip()]
-
 if not claves:
     st.info("Escribe al menos una clave en el panel de la izquierda.")
     st.stop()
@@ -166,7 +172,6 @@ if limpio.empty:
 principal = limpio[limpio["Clave"] == claves[0]].sort_values("Fecha").copy()
 titulo_principal = principal["Serie"].iloc[0]
 
-
 # ─── Encabezado e indicadores ──────────────────────────────────────────
 st.title("Tablero de series del SIE")
 # El título lo declara Banxico: confirma que la clave es la correcta.
@@ -175,7 +180,6 @@ st.caption(f"{titulo_principal} · del {inicio} al {fin} · "
 
 primero = principal["Valor"].iloc[0]
 ultimo = principal["Valor"].iloc[-1]
-
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Días con dato", len(principal))
 c2.metric("Días inhábiles (N/E)", faltantes.get(claves[0], 0))
@@ -186,7 +190,6 @@ c4.metric("Mínimo y máximo",
 
 st.divider()
 
-
 # ─── Gráficas ──────────────────────────────────────────────────────────
 izquierda, derecha = st.columns(2)
 
@@ -194,7 +197,6 @@ with izquierda:
     if len(claves) == 1:
         st.subheader("La serie y su tendencia")
         principal["Suave"] = principal["Valor"].rolling(suavizado).mean()
-
         fig, ax = plt.subplots(figsize=(6, 3.4))
         ax.plot(principal["Fecha"], principal["Valor"], color=GRIS,
                 linewidth=0.9, label="Valor diario")
@@ -210,8 +212,7 @@ with izquierda:
         st.subheader("Comparación en base 100")
         limpio = limpio.sort_values("Fecha")
         limpio["Base100"] = (limpio.groupby("Clave")["Valor"]
-                                   .transform(lambda s: s / s.iloc[0] * 100))
-
+                             .transform(lambda s: s / s.iloc[0] * 100))
         fig, ax = plt.subplots(figsize=(6, 3.4))
         for i, clave in enumerate(claves):
             parte = limpio[limpio["Clave"] == clave]
@@ -230,7 +231,6 @@ with derecha:
     # Para un precio, el valor del mes es el de cierre, no el promedio.
     mensual = (principal.set_index("Fecha")["Valor"].resample("ME").last())
     cambio = (mensual.pct_change() * 100).dropna()
-
     fig, ax = plt.subplots(figsize=(6, 3.4))
     ax.bar(cambio.index,
            cambio.values,
@@ -243,13 +243,14 @@ with derecha:
     st.caption("Rojo: el valor subió. Azul: bajó. Para un tipo de cambio, "
                "subir significa que el peso se debilitó.")
 
+# La variación diaria la usan el boxplot y la volatilidad móvil
+principal["Variacion"] = principal["Valor"].pct_change() * 100
+porAnio = principal.dropna(subset=["Variacion"])
+
 abajo_izq, abajo_der = st.columns(2)
 
 with abajo_izq:
     st.subheader("Qué tan movido estuvo cada año")
-    principal["Variacion"] = principal["Valor"].pct_change() * 100
-    porAnio = principal.dropna(subset=["Variacion"])
-
     fig, ax = plt.subplots(figsize=(6, 3.4))
     sns.boxplot(data=porAnio, x="Anio", y="Variacion", color=GRIS, ax=ax)
     ax.axhline(0, color=ROJO, linewidth=1, linestyle="--")
@@ -258,23 +259,37 @@ with abajo_izq:
     st.pyplot(fig)
 
 with abajo_der:
-    st.subheader("Promedio por mes y año")
-    calor = principal.pivot_table(index="Anio", columns="Mes",
-                                  values="Valor", aggfunc="mean")
-
+    # GRÁFICA NUEVA: sustituye al mapa de calor "Promedio por mes y año".
+    st.subheader("Volatilidad móvil")
+    # Se usa la misma ventana que la media móvil (el control de la barra
+    # lateral), pero con un mínimo de 5 días para que la desviación
+    # estándar tenga sentido.
+    ventana = max(suavizado, 5)
+    volatilidad = (principal.set_index("Fecha")["Variacion"]
+                   .rolling(ventana).std().dropna())
     fig, ax = plt.subplots(figsize=(6, 3.4))
-    imagen = ax.imshow(calor, cmap="YlGnBu", aspect="auto")
-    fig.colorbar(imagen, ax=ax)
-    ax.set_xticks(range(len(calor.columns)))
-    ax.set_xticklabels(["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul",
-                        "Ago", "Sep", "Oct", "Nov", "Dic"][:len(calor.columns)])
-    ax.set_yticks(range(len(calor.index)))
-    ax.set_yticklabels(calor.index)
-    ax.grid(False)
+    if volatilidad.empty:
+        ax.text(0.5, 0.5, "Pocos datos para esta ventana",
+                ha="center", va="center", transform=ax.transAxes)
+    else:
+        ax.fill_between(volatilidad.index, volatilidad.values,
+                        color=GRIS, alpha=0.6)
+        ax.plot(volatilidad.index, volatilidad.values, color=AZUL,
+                linewidth=1.6)
+        # Se marca el momento de mayor inestabilidad del periodo
+        pico = volatilidad.idxmax()
+        ax.scatter([pico], [volatilidad.max()], color=ROJO, zorder=3)
+        ax.annotate(f"Máximo: {volatilidad.max():.2f} %\n{pico:%d/%m/%Y}",
+                    xy=(pico, volatilidad.max()),
+                    xytext=(10, -28), textcoords="offset points",
+                    fontsize=8, color=ROJO)
+    ax.set_xlabel("Fecha")
+    ax.set_ylabel(f"Volatilidad ({ventana} d, %)")
+    fig.tight_layout()
     st.pyplot(fig)
-    st.caption("Escala secuencial: el valor tiene orden pero no un cero "
-               "con significado, así que no va divergente.")
-
+    st.caption("Mientras más alta la curva, más impredecibles fueron los "
+               "cambios diarios en esa ventana. Una curva baja y plana "
+               "indica un periodo estable.")
 
 # ─── Datos ─────────────────────────────────────────────────────────────
 with st.expander("Ver y descargar los datos"):
